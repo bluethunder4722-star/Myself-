@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 100 },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "bio": { "type": "string", "maxLength": 200 },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "isVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "post": {
+      "title": "Post",
+      "description": "A user generated post (reel/image)",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["video", "image"] },
+        "caption": { "type": "string", "maxLength": 500 },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["authorId", "mediaUrl", "mediaType", "createdAt"]
+    },
+    "chat": {
+      "title": "Chat",
+      "description": "A conversation between users",
+      "type": "object",
+      "properties": {
+        "participantIds": { "type": "array", "items": { "type": "string" }, "maxItems": 10 },
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "lastMessage": { "type": "string" },
+        "lastMessageTime": { "type": "string", "format": "timestamp" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["participantIds", "type", "createdAt"]
+    },
+    "message": {
+      "title": "Message",
+      "description": "A message within a chat",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["chatId", "senderId", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/user" },
+      "description": "Stores user profiles"
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/post" },
+      "description": "Stores all public posts, reels, stories"
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/chat" },
+      "description": "Stores chat documents"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/message" },
+      "description": "Stores messages within a specific chat"
+    }
+  }
+}

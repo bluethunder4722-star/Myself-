@@ -1,0 +1,134 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PRIMITIVES ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidStrP(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // --- VALIDATORS ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'createdAt'])
+        && isValidStrP(data.email, 1, 150)
+        && data.createdAt == request.time
+        && (!('displayName' in data) || isValidStrP(data.displayName, 1, 100))
+        && (!('photoURL' in data) || isValidStrP(data.photoURL, 1, 1000))
+        && (!('bio' in data) || isValidStrP(data.bio, 0, 200))
+        && (!('followersCount' in data) || (data.followersCount is number && data.followersCount >= 0))
+        && (!('followingCount' in data) || (data.followingCount is number && data.followingCount >= 0))
+        && (!('isVerified' in data) || data.isVerified is bool)
+        && (!('updatedAt' in data) || data.updatedAt == request.time);
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasAll(['authorId', 'mediaUrl', 'mediaType', 'createdAt'])
+        && isValidId(data.authorId)
+        && data.authorId == request.auth.uid
+        && isValidStrP(data.mediaUrl, 1, 1000)
+        && (data.mediaType == 'video' || data.mediaType == 'image')
+        && data.createdAt == request.time
+        && (!('caption' in data) || isValidStrP(data.caption, 0, 500))
+        && (!('likesCount' in data) || (data.likesCount is number && data.likesCount >= 0))
+        && (!('commentsCount' in data) || (data.commentsCount is number && data.commentsCount >= 0));
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['participantIds', 'type', 'createdAt'])
+        && data.participantIds is list
+        && data.participantIds.size() >= 2
+        && data.participantIds.size() <= 10
+        && request.auth.uid in data.participantIds
+        && (data.type == 'direct' || data.type == 'group')
+        && data.createdAt == request.time
+        && (!('lastMessage' in data) || isValidStrP(data.lastMessage, 0, 1000))
+        && (!('lastMessageTime' in data) || data.lastMessageTime == request.time);
+    }
+
+    function isValidMessage(data, chatId) {
+      return data.keys().hasAll(['chatId', 'senderId', 'text', 'createdAt'])
+        && data.chatId == chatId
+        && data.senderId == request.auth.uid
+        && isValidStrP(data.text, 1, 2000)
+        && data.createdAt == request.time;
+    }
+
+    // --- RULES ---
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() 
+        && isValidId(userId)
+        && request.auth.uid == userId 
+        && isValidUser(incoming())
+        && incoming().keys().size() <= 9;
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'bio', 'updatedAt'])
+        && incoming().updatedAt == request.time
+        && (!('displayName' in incoming()) || isValidStrP(incoming().displayName, 1, 100))
+        && (!('photoURL' in incoming()) || isValidStrP(incoming().photoURL, 1, 1000))
+        && (!('bio' in incoming()) || isValidStrP(incoming().bio, 0, 200));
+    }
+
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && isValidId(postId)
+        && isValidPost(incoming())
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && incoming().keys().size() <= 7;
+      allow update: if isSignedIn()
+        && isValidId(postId)
+        && existing().authorId == request.auth.uid // Ownership enforced
+        && incoming().diff(existing()).affectedKeys().hasOnly(['caption', 'likesCount', 'commentsCount'])
+        && (!('caption' in incoming()) || isValidStrP(incoming().caption, 0, 500));
+      allow delete: if isSignedIn() && isValidId(postId) && existing().authorId == request.auth.uid;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() 
+        && request.auth.uid in resource.data.participantIds;
+      
+      allow create: if isSignedIn()
+        && isValidId(chatId)
+        && isValidChat(incoming())
+        && incoming().keys().size() <= 5;
+      
+      allow update: if isSignedIn()
+        && isValidId(chatId)
+        && request.auth.uid in existing().participantIds
+        && incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage', 'lastMessageTime'])
+        && isValidStrP(incoming().lastMessage, 0, 1000)
+        && incoming().lastMessageTime == request.time;
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isSignedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantIds;
+
+      allow create: if isSignedIn()
+        && isValidId(chatId)
+        && isValidId(messageId)
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantIds
+        && isValidMessage(incoming(), chatId)
+        && incoming().keys().size() == 4;
+    }
+  }
+}

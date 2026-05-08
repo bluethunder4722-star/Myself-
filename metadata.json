@@ -1,0 +1,9 @@
+{
+  "name": "MYSELF",
+  "description": "Next Generation Super App featuring Social Feed, Realtime Chat, and an AI Genesis Assistant.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
